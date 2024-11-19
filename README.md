@@ -23,7 +23,7 @@ int main() { ... } // Line 44: Main
 
 void display(FILE* file) { .} // Line 104: Display records
 
-    Line 104: Display records - Loo
+    Line 104: Display records 
     Line 107: Reads the block and records data from the file.
     Line 114: Displays each record in a block.
 
