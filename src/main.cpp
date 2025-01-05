@@ -5,31 +5,44 @@
 
 #define block_size 1024 //max characters in block (size of block in bytes)
 #define SEEK_SET 0
+#define indexRow 1000
+#define indexCol 3
 
+
+typedef struct {
+    int numOfrec; // number of records
+} HeaderIndex;//header index struct
+
+typedef struct {
+    int id;
+    int blockNum;
+    int recNum;
+} IndexF; //index struct
 
 typedef struct {
     char id[50];
     char name[50];
     char age[3];
     int deleted;
-} Patient;  
+} Patient;  //patient struct
 
 typedef struct {
     char rec[256];
     int size;
-} record;
+} record; //record struct
 
 typedef struct {
     char patients[block_size];
     int nr;              // number of records in block
     int used;            // used space in block
-} Tbloc;
+} Tbloc;//block struct
 
 typedef struct {
     int nb; // number of blocks
     int nr; // number of records
     int ne; // number of deleted records
-} Header;
+} Header;//header struct
+
 
 int header(FILE* file, int i) {// read header
     Header a;
@@ -186,11 +199,102 @@ void display(FILE* file) {// display all records in the file
         displayRecords(records, block.nr);  // use function to display all records in the block
     }
 }
-void insert(FILE* file, Patient p) {// insert a patient record into the file
+//Index
+void loadIndex(FILE* indexF, int indexT[][indexCol], int *num) {
+    HeaderIndex headerIndex;
+    // Read the number of records
+    fseek(indexF, 0, SEEK_SET);  // Go to the beginning of the file
+    fread(&headerIndex, sizeof(HeaderIndex), 1, indexF);
+    
+    *num = headerIndex.numOfrec;  // Set the number of records from the header
+
+    // Read the indexTable values from the file
+    for (int i = 0; i < *num; i++) {
+        IndexF indexValues;
+        fread(&indexValues, sizeof(IndexF), 1, indexF);  // Read one values of IndexF from the file
+        indexT[i][0] = indexValues.id;       // Store the id
+        indexT[i][1] = indexValues.blockNum; // Store the block number
+        indexT[i][2] = indexValues.recNum;   // Store the record number
+    }
+}
+
+void saveIndex(FILE* indexF, int indexT[][indexCol], int num) {
+    HeaderIndex headerIndex;
+    headerIndex.numOfrec = num;  // Set the number of records in the header
+
+    // Write the header to the file
+    fseek(indexF, 0, SEEK_SET);  // Go to the beginning of the file
+    fwrite(&headerIndex, sizeof(HeaderIndex), 1, indexF);
+
+    // Write the indexTable values to the file
+    for (int i = 0; i < num; i++) {
+        IndexF indexFEntry;
+        indexFEntry.id = indexT[i][0];        // Set id
+        indexFEntry.blockNum = indexT[i][1];  // Set block number
+        indexFEntry.recNum = indexT[i][2];    // Set record number
+
+        fwrite(&indexFEntry, sizeof(IndexF), 1, indexF);  // Write one value of IndexF to the file
+    }
+}
+void deleteIndex(int id,int indexT[indexRow][indexCol], int *num) {
+    for (int i = 0; i < *num; i++) {
+        if (indexT[i][0] == id) {
+            for (int j = i; j < indexCol; j++) {
+            indexT[i][j]=indexT[*num-1][j];
+            }
+            (*num)--;
+            return;
+        }
+    }
+}
+void searchIndex(int id,int pos[2],int indexT[indexRow][indexCol], int num) {//blockPos,recnum
+    for (int i = 0; i < num; i++) {
+        if (indexT[i][0] == id) {
+            pos[0]=indexT[i][1];
+            pos[1]=indexT[i][2];
+            printf("Record Found\n");
+            return;
+        }
+    }
+    printf("Record Not Found\n");
+}
+void displayFromIndex(FILE* file,int pos[2]) {
+    Tbloc block;
+    int blocks = header(file, 1);
+    fseek(file, sizeof(Header) + (pos[0] - 1) * sizeof(Tbloc), SEEK_SET);
+    fread(&block, sizeof(Tbloc), 1, file);
+    record records[block.nr];
+    readRecord(&block, records);
+    printf("%s", records[pos[1]].rec);
+    
+}
+void InsertInIndex(int indexT[indexRow][indexCol],const char* id,int blockPos,int recPos,int *num) {
+    int idn=atoi(id);
+    int i=0;
+    while (indexT[i][0]!=0) {
+        i++;
+    }
+    indexT[i][0]=idn;
+    indexT[i][1]=blockPos;
+    indexT[i][2]=recPos;
+    (*num)++;
+    
+}
+void displayIndexTable(int indexT[indexRow][indexCol], int num) {
+    for (int i = 0; i < num; i++) {
+        for (int j = 0; j < indexCol; j++) {
+            printf("%d ", indexT[i][j]);
+        }
+        printf("\n");
+    }
+}
+void insert(FILE* file, Patient p, int indexT[indexRow][indexCol],int *num) {// insert a patient record into the file
     Tbloc buff1;
     record record;
-    
+    int currentBlock=0;//to save in index
+    int recordnum = 0;//to save in index
     int pos = 0;
+    int insert=0;
     memset(record.rec, 0, sizeof(record.rec)); // clear the record
 
     // copy ID to the record
@@ -230,10 +334,14 @@ void insert(FILE* file, Patient p) {// insert a patient record into the file
     record.rec[pos] = '\0';   // terminate the record string
 
     record.size = pos;  
-
+//save the record string to the file
     fseek(file, sizeof(Header), SEEK_SET);
     while (fread(&buff1, sizeof(Tbloc), 1, file) == 1) {
+        currentBlock++;
         if (block_size - buff1.used >= record.size) {
+
+           
+
             // append the record to the block
             for (int i = 0; i < record.size; i++) {
                 buff1.patients[buff1.used + i] = record.rec[i];
@@ -245,14 +353,25 @@ void insert(FILE* file, Patient p) {// insert a patient record into the file
             fwrite(&buff1, sizeof(Tbloc), 1, file);
             
             setheader(file, 2, header(file, 2) + 1); // update number of records
+             int recordnum = header(file, 2);     // record start position to save in index
             printf("Record inserted successfully.\n");
+            InsertInIndex(indexT, p.id, currentBlock, recordnum, num);
+            printf("Id inserted successfully In index File.\n");
+
+            insert=1;
             return;
         }
+    if(insert==1)
+    break;
+       
     }
 
-    // no space in existing blocks, create a new block
+    // no space in existing block, create a new block
     Tbloc buff2;
+    currentBlock++;
     buff2.used = 0;
+    recordnum = 1;          // record start number to save in index
+
     for (int i = 0; i < record.size; i++) {
         buff2.patients[i] = record.rec[i];
     }
@@ -262,7 +381,12 @@ void insert(FILE* file, Patient p) {// insert a patient record into the file
     setheader(file, 1, header(file, 1) + 1); // update number of blocks
     setheader(file, 2, header(file, 2) + 1); // update number of records
     printf("Record inserted in a new block.\n");
+    InsertInIndex(indexT, p.id, currentBlock, recordnum, num);
+    printf("Id inserted successfully In index File.\n");
+
 }
+
+
 
 void deletem(FILE* file, const char* id) {// Delete a patient record by ID
     Tbloc block;
@@ -316,8 +440,6 @@ void search(FILE* file, const char* searchID) {//search for a specific ID
 
         record records[block.nr];  // create an array 
         readRecord(&block, records);  
-
-        
         searchAndDisplayRecord(records, block.nr, searchID);
     }
 }
@@ -349,8 +471,8 @@ void searchInRange(FILE* file, const char* startID, const char* endID) { //searc
 }
 
 
-
-int main() {
+int main() { 
+    // open files
     FILE* file = fopen("patientsA.dat", "rb+");
     if (file == NULL) {
         file = fopen("patientsA.dat", "wb+");
@@ -362,13 +484,40 @@ int main() {
         fwrite(&header_init, sizeof(Header), 1, file);
     }
 
+    FILE* indexF = fopen("indexF.txt", "r+");
+    if (indexF == NULL) {
+        indexF = fopen("indexF.txt", "w+");
+        if (indexF == NULL) {
+            printf("Error opening index file.\n");
+            return -1;
+        }
+        HeaderIndex header2_init = {0};
+        fwrite(&header2_init, sizeof(HeaderIndex), 1, indexF);
+    }
+    
+    // Read the header of the index file to get the number of records
+    HeaderIndex header2;
+    fseek(indexF, 0, SEEK_SET);
+    fread(&header2, sizeof(HeaderIndex), 1, indexF);
+    
+    // Initialize index table and number of records
+    int numRecordsInIndex = header2.numOfrec;
+    int indexTable[numRecordsInIndex][indexCol] = {0};
+
+
+    // Load the index table from the file
+    loadIndex(indexF, indexTable, &numRecordsInIndex);
+
     int choice;
     do {
-        printf("\n1. Display Records\n");
-        printf("2. Search Record\n");
+        printf("\nMenu:\n");
+        printf("1. Display All Records\n");
+        printf("2. Search Record by ID\n");
         printf("3. Insert Record\n");
-        printf("4. Search by ID Range\n");
-        printf("5. Exit\n");
+        printf("4. Delete Record by ID\n");
+        printf("5. Search Record using Index\n");
+        printf("6. Display Index Table\n");
+        printf("7. Exit\n");
         printf("Enter your choice: ");
         scanf("%d", &choice);
 
@@ -382,28 +531,51 @@ int main() {
             search(file, searchID);
         } else if (choice == 3) {
             Patient p;
-            printf("\nEnter ID: ");
+            printf("\nEnter Patient ID: ");
             scanf("%s", p.id);
-            printf("Enter Name: ");
+            printf("Enter Patient Name: ");
             scanf("%s", p.name);
-            printf("Enter Age: ");
+            printf("Enter Patient Age: ");
             scanf("%s", p.age);
             p.deleted = 0;
-            insert(file, p);
+            insert(file, p, indexTable, &numRecordsInIndex);
         } else if (choice == 4) {
-            char startID[50], endID[50];
-            printf("\nEnter start ID: ");
-            scanf("%s", startID);
-            printf("Enter end ID: ");
-            scanf("%s", endID);
-            searchInRange(file, startID, endID);
-        } else if (choice != 5) {
-            printf("Invalid choice. Try again.\n");
+            char deleteID[50];
+            printf("\nEnter ID to delete: ");
+            scanf("%s", deleteID);
+            deletem(file, deleteID);
+
+            // Update index table
+            int idToDelete = atoi(deleteID);
+            deleteIndex(idToDelete, indexTable, &numRecordsInIndex);
+        } else if (choice == 5) {
+            int searchID;
+            printf("\nEnter ID to search using index: ");
+            scanf("%d", &searchID);
+
+            int pos[2] = {0};
+            searchIndex(searchID, pos, indexTable, numRecordsInIndex);
+
+            if (pos[0] > 0 && pos[1] >= 0) {
+                printf("\nDisplaying record from index:\n");
+                displayFromIndex(file, pos);
+            }
+        } else if (choice == 6) {
+            printf("\nDisplaying index table:\n");
+            displayIndexTable(indexTable, numRecordsInIndex);
+        } else if (choice == 7) {
+            printf("\nExiting program.\n");
+            break;
+        } else {
+            printf("\nInvalid choice. Please try again.\n");
         }
-    } while (choice != 5);
+    } while (choice != 7);
+
+    // Save the index table to the file
+    fseek(indexF, 0, SEEK_SET);
+    saveIndex(indexF, indexTable, numRecordsInIndex);
 
     fclose(file);
+    fclose(indexF);
     return 0;
 }
-
-
