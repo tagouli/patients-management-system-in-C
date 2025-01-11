@@ -501,8 +501,8 @@ int main() {
     fread(&header2, sizeof(HeaderIndex), 1, indexF);
     
     // Initialize index table and number of records
-    int numRecordsInIndex = header2.numOfrec;
-    int indexTable[numRecordsInIndex][indexCol] = {0};
+    int numRecordsInIndex = header2.numOfrec+1;
+    int indexTable[indexRow][indexCol] = {0};
 
 
     // Load the index table from the file
